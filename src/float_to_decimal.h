@@ -46,20 +46,20 @@ static uint64_t log10(uint64_t n) {
 	}
 	else {
 		// 11..20
-		return n < 1000000000000000
-			? n < 10000000000000
-				? n < 1000000000000
-					? n < 100000000000 ? 11 : 12
+		return n < 1000000000000000ull
+			? n < 10000000000000ull
+				? n < 1000000000000ull
+					? n < 100000000000ull ? 11 : 12
 					: 13
 			
-				: n < 100000000000000 ? 14 : 15
+				: n < 100000000000000ull ? 14 : 15
 
-			: n < 1000000000000000000
-				? n < 100000000000000000
-					? n < 10000000000000000 ? 16 : 17
+			: n < 1000000000000000000ull
+				? n < 100000000000000000ull
+					? n < 10000000000000000ull ? 16 : 17
 					: 18
 
-				: n < 10000000000000000000 ? 19 : 20;
+				: n < 10000000000000000000ull ? 19 : 20;
 	}
 }
 
@@ -109,7 +109,7 @@ static uint64_t udiv5(uint64_t high, uint64_t low, uint64_t* remainder, uint64_t
     _addcarry_u64(carry, merged, 0, &merged);
     uint64_t rem = merged % 5;
     uint64_t lowSub = low - rem;
-    uint64_t low_quotient = lowSub * 14757395258967641293;
+    uint64_t low_quotient = lowSub * 14757395258967641293ull;
     *high_quotient = high / 5;
 
     *remainder = rem;
@@ -128,7 +128,7 @@ static uint64_t udiv10(uint64_t high, uint64_t low, uint64_t* remainder, uint64_
 
     uint64_t rem = merged % 5;
     uint64_t lowSub = low2 - rem;
-    uint64_t low_quotient = lowSub * 14757395258967641293;
+    uint64_t low_quotient = lowSub * 14757395258967641293ull;
 
     *remainder = low - 2*lowSub;
     *quotient_high = high / 10;
@@ -205,7 +205,7 @@ size_t UnsignedToDecimal(uint64_t high, uint64_t low, char* str) {
 	else {
 		// TODO: division by a constant should not be done with div
 		uint64_t remainder;
-		uint64_t quotient = udiv(high, low, 10000000000000000000, &remainder);
+		uint64_t quotient = udiv(high, low, 10000000000000000000ull, &remainder);
 		ptr += UnsignedToDecimal(quotient, ptr);
 		// TODO: I might want to add a pad parameter to UnsignedToDecimal
 		size_t length = UnsignedToDecimal(remainder, ptr);

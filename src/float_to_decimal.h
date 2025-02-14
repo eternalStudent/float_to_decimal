@@ -106,50 +106,50 @@ static inline uint64_t uint128_div(uint64_t high, uint64_t low, uint64_t divisor
 }
 
 static inline uint64_t uint128_div5(uint64_t high, uint64_t low, uint64_t* remainder, uint64_t* high_quotient) {
-    // Use 2^64 = 1 mod 5 to compute remainder:
-    // (high * 2^64 + low) 
-    // = high + low mod 5
-    // = high + low + carry mod 5 (the high + low might overflow, carry = 2^64 = 1 mod 5)
-    //
-    // Write high * 2^64 + low - remainder = highSub * 2^64 + lowSub
-    // Note that highSub + lowSub = highSub * 2^64 + lowSub = 0 mod 5
-    // Compute low bits of the divide:
-    // lowSub * (2^66+1)/5 (division is exact!)
-    // = lowSub/5 * 2^66 + lowSub/5
-    // = lowSub*4/5 * 2^64 + lowSub/5
-    // = highSub/5 * 2^64 + lowSub/5 mod 2^64 (lowSub * 4 = -lowSub = highSub mod 5)
-    // = (highSub * 2^64 + lowSub)/5 mod 2^64
-    // = flowor((high * 2^64 + low)/5) mod 2^64
+	// Use 2^64 = 1 mod 5 to compute remainder:
+	// (high * 2^64 + low) 
+	// = high + low mod 5
+	// = high + low + carry mod 5 (the high + low might overflow, carry = 2^64 = 1 mod 5)
+	//
+	// Write high * 2^64 + low - remainder = highSub * 2^64 + lowSub
+	// Note that highSub + lowSub = highSub * 2^64 + lowSub = 0 mod 5
+	// Compute low bits of the divide:
+	// lowSub * (2^66+1)/5 (division is exact!)
+	// = lowSub/5 * 2^66 + lowSub/5
+	// = lowSub*4/5 * 2^64 + lowSub/5
+	// = highSub/5 * 2^64 + lowSub/5 mod 2^64 (lowSub * 4 = -lowSub = highSub mod 5)
+	// = (highSub * 2^64 + lowSub)/5 mod 2^64
+	// = flowor((high * 2^64 + low)/5) mod 2^64
 
-    carry_t carry;
-    uint64_t merged = uint65_add(0, high, low, &carry);
-    merged = uint65_add(carry, merged, 0, &carry);
-    uint64_t rem = merged % 5;
-    uint64_t lowSub = low - rem;
-    uint64_t low_quotient = lowSub * 14757395258967641293ull;
-    *high_quotient = high / 5;
+	carry_t carry;
+	uint64_t merged = uint65_add(0, high, low, &carry);
+	merged = uint65_add(carry, merged, 0, &carry);
+	uint64_t rem = merged % 5;
+	uint64_t lowSub = low - rem;
+	uint64_t low_quotient = lowSub * 14757395258967641293ull;
+	*high_quotient = high / 5;
 
-    *remainder = rem;
+	*remainder = rem;
 
-    return low_quotient;
+	return low_quotient;
 }
 
 static inline uint64_t uint128_div10(uint64_t high, uint64_t low, uint64_t* remainder, uint64_t* quotient_high) {
 	uint64_t high2;
 	uint64_t low2 = uint128_shiftright(high, low, 1, &high2);
-   
-   	carry_t carry;
-    uint64_t merged = uint65_add(0, high2, low2, &carry);
- 	merged = uint65_add(carry, merged, 0, &carry);
 
-    uint64_t rem = merged % 5;
-    uint64_t lowSub = low2 - rem;
-    uint64_t low_quotient = lowSub * 14757395258967641293ull;
+	carry_t carry;
+	uint64_t merged = uint65_add(0, high2, low2, &carry);
+	merged = uint65_add(carry, merged, 0, &carry);
 
-    *remainder = low - 2*lowSub;
-    *quotient_high = high / 10;
+	uint64_t rem = merged % 5;
+	uint64_t lowSub = low2 - rem;
+	uint64_t low_quotient = lowSub * 14757395258967641293ull;
 
-    return low_quotient;
+	*remainder = low - 2*lowSub;
+	*quotient_high = high / 10;
+
+	return low_quotient;
 }
 
 static inline uint64_t uint128_mul(uint64_t high_a, uint64_t low_a, uint64_t b, uint64_t *high_c) {

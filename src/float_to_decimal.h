@@ -53,12 +53,12 @@ typedef unsigned long long carry_t;
 typedef unsigned char carry_t;
 #endif
 
-uint64_t uint65_add(carry_t high_a, uint64_t low_a, uint64_t b, carry_t* high_c) {
+uint64_t uint64_addWithCarry(carry_t carry, uint64_t a, uint64_t b, carry_t* high_c) {
 #if defined(COMPILER_CLANG) || defined(COMPILER_GCC)
-	return __builtin_addcll(low_a, b, high_a, high_c);
+	return __builtin_addcll(a, b, carry, high_c);
 #elif defined(COMPILER_MSVC)
 	uint64_t c;
-	*high_c = _addcarry_u64(high_a, low_a, b, &c);
+	*high_c = _addcarry_u64(carry, a, b, &c);
 	return c;
 #endif
 }
@@ -122,8 +122,8 @@ static inline uint64_t uint128_div5(uint64_t high, uint64_t low, uint64_t* remai
 	// = flowor((high * 2^64 + low)/5) mod 2^64
 
 	carry_t carry;
-	uint64_t merged = uint65_add(0, high, low, &carry);
-	merged = uint65_add(carry, merged, 0, &carry);
+	uint64_t merged = uint64_addWithCarry(0, high, low, &carry);
+	merged = uint64_addWithCarry(carry, merged, 0, &carry);
 	uint64_t rem = merged % 5;
 	uint64_t lowSub = low - rem;
 	uint64_t low_quotient = lowSub * 14757395258967641293ull;
@@ -139,8 +139,8 @@ static inline uint64_t uint128_div10(uint64_t high, uint64_t low, uint64_t* rema
 	uint64_t low2 = uint128_shiftright(high, low, 1, &high2);
 
 	carry_t carry;
-	uint64_t merged = uint65_add(0, high2, low2, &carry);
-	merged = uint65_add(carry, merged, 0, &carry);
+	uint64_t merged = uint64_addWithCarry(0, high2, low2, &carry);
+	merged = uint64_addWithCarry(carry, merged, 0, &carry);
 
 	uint64_t rem = merged % 5;
 	uint64_t lowSub = low2 - rem;

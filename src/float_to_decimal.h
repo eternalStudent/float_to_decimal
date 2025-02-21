@@ -23,7 +23,7 @@
 #  define ASSERT(expression)	(void)(expression)
 #endif
 
-static inline int64_t bits_findFirstSetBit(uint64_t value, int64_t onZero) {
+static inline int64_t bits_findLastSetBit(uint64_t value, int64_t onZero) {
 	if (value == 0) return onZero;
 
 #if defined(COMPILER_CLANG) || defined(COMPILER_GCC)
@@ -35,7 +35,7 @@ static inline int64_t bits_findFirstSetBit(uint64_t value, int64_t onZero) {
 #endif
 }
 
-static inline int64_t bits_findLastSetBit(uint64_t value) {
+static inline int64_t bits_findFirstSetBit(uint64_t value) {
 	if (value == 0) return 64;
 
 #if defined(COMPILER_CLANG) || defined(COMPILER_GCC)
@@ -187,7 +187,7 @@ static inline uint64_t getNumberOfDecimalDigits(uint64_t n) {
 		999999999999999999ull,
 		9999999999999999999ull
 	};
-	uint64_t y = (19 * bits_findFirstSetBit(n, 0) >> 6);
+	uint64_t y = (19 * bits_findLastSetBit(n, 0) >> 6);
 	y += n > table[y];
 	return y + 1;
 }
@@ -293,13 +293,13 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 	uint32_t p = (uint32_t)precision;
 	char* ptr = buffer;
 
-	int32_t trailingZeroes = (int32_t)bits_findLastSetBit(m2);
+	int32_t trailingZeroes = (int32_t)bits_findFirstSetBit(m2);
 
 	// simplify the fraction
 	m2 >>= trailingZeroes;
 	e2 += trailingZeroes;
 
-	int32_t highBit = (int32_t)bits_findFirstSetBit(m2, 0); 
+	int32_t highBit = (int32_t)bits_findLastSetBit(m2, 0); 
 	ASSERT(highBit <= 52);
 
 	bool hasWhole = 0 <= e2 || -e2 <= highBit;

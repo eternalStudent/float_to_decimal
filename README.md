@@ -1,7 +1,7 @@
 # float_to_decimal
 A simple implementation of float to decimal in C that almost anyone can understand.
 
-This was written less as a library, and more as a reference implenetation for anyone who wishes to copy-paste into their own codebase. However I did make some changea to make it esier to use as a standalone library.
+This was written less as a library, and more as a reference implenetation for anyone who wishes to copy-paste into their own codebase. However I did make some allowances to make it easier to use as a standalone library.
 
 Add `#define FLOAT_TO_DECIMAL_IMPLEMENTATION` before `#include`ing this file in *one* C or C++ file to create the implementation.
 

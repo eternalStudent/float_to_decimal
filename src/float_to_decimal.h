@@ -13,15 +13,18 @@
 #include <string.h>
 #include <stdint.h>
 
-#if defined(COMPILER_CLANG) || defined(COMPILER_GCC)
-# define __debugbreak() __builtin_trap()
-#endif
+#ifndef INCLUDE_FLOAT_TO_DECIMAL_H
+#define INCLUDE_FLOAT_TO_DECIMAL_H
 
-#if defined(DEBUG)
-#  define ASSERT(expression) 	do{if(!(expression)) {__debugbreak();}}while(0)
-#else
-#  define ASSERT(expression)	(void)(expression)
-#endif
+size_t Unsigned64ToDecimal(uint64_t number, char* buffer, int32_t minDigits);
+size_t Unsigned128ToDecimal(uint64_t high, uint64_t low, char* buffer);
+size_t FloatToDecimal(uint64_t m2, int32_t e2, char* buffer, int32_t maxPrecision);
+size_t Float32ToDecimal(float value, char* buffer, int32_t maxPrecision);
+size_t Float64ToDecimal(double value, char* buffer, int32_t maxPrecision);
+
+#endif // INCLUDE_FLOAT_TO_DECIMAL_H
+
+#ifdef FLOAT_TO_DECIMAL_IMPLEMENTATION
 
 static inline int64_t bits_findLastSetBit(uint64_t value, int64_t onZero) {
 	if (value == 0) return onZero;
@@ -81,30 +84,6 @@ static inline uint64_t uint128_shiftleft(uint64_t high, uint64_t low, unsigned c
 	return low << shift;
 }
 
-static inline uint64_t uint128_div(uint64_t high, uint64_t low, uint64_t divisor, uint64_t* remainder) {
-#if defined(COMPILER_CLANG) || defined(COMPILER_GCC)
-	uint64_t quotient;
-	uint64_t rem;
-
-	asm("divq %4"
-		: "=a"(quotient), "=d"(rem)
-		: "d"(high), "a"(low), "r"(divisor)
-		: "cc");
-
-	*remainder = rem;
-
-	return quotient;
-#elif defined(COMPILER_MSVC)
-	return _udiv128(high, low, divisor, remainder);
-#endif
-}
-
-static inline uint64_t uint128_div(uint64_t high, uint64_t low, uint64_t divisor, uint64_t* remainder, uint64_t* high_quotient) {
-	uint64_t high_r = high % divisor;
-	*high_quotient = high / divisor;
-	return uint128_div(high_r, low, divisor, remainder);
-}
-
 static inline uint64_t uint128_div5(uint64_t high, uint64_t low, uint64_t* remainder, uint64_t* high_quotient) {
 	// Use 2^64 = 1 mod 5 to compute remainder:
 	// (high * 2^64 + low) 
@@ -119,7 +98,7 @@ static inline uint64_t uint128_div5(uint64_t high, uint64_t low, uint64_t* remai
 	// = lowSub*4/5 * 2^64 + lowSub/5
 	// = highSub/5 * 2^64 + lowSub/5 mod 2^64 (lowSub * 4 = -lowSub = highSub mod 5)
 	// = (highSub * 2^64 + lowSub)/5 mod 2^64
-	// = flowor((high * 2^64 + low)/5) mod 2^64
+	// = floor((high * 2^64 + low)/5) mod 2^64
 
 	carry_t carry;
 	uint64_t merged = uint64_addWithCarry(0, high, low, &carry);
@@ -134,22 +113,45 @@ static inline uint64_t uint128_div5(uint64_t high, uint64_t low, uint64_t* remai
 	return low_quotient;
 }
 
-static inline uint64_t uint128_div10(uint64_t high, uint64_t low, uint64_t* remainder, uint64_t* quotient_high) {
-	uint64_t high2;
-	uint64_t low2 = uint128_shiftright(high, low, 1, &high2);
+static inline uint64_t uint128_div10e19(uint64_t high, uint64_t low, uint64_t* remainder, uint64_t* high_quotient) {
+	/*
+	 * This is a general algorithm that does not take into account any
+	 * special properties of 10e19.
+	 */
+	const uint64_t divisor = 10000000000000000000ULL;
 
-	carry_t carry;
-	uint64_t merged = uint64_addWithCarry(0, high2, low2, &carry);
-	merged = uint64_addWithCarry(carry, merged, 0, &carry);
+	*high_quotient = high / divisor;
 
-	uint64_t rem = merged % 5;
-	uint64_t lowSub = low2 - rem;
-	uint64_t low_quotient = lowSub * 14757395258967641293ull;
+	high = high % divisor;
+	uint32_t low1 = (uint32_t)(low >> 32);
+	uint32_t low0 = (uint32_t)(low & 0xFFFFFFFFu);
+	const uint32_t div1 = 2328306436;
+	const uint32_t div0 = 2313682944;
 
-	*remainder = low - 2*lowSub;
-	*quotient_high = high / 10;
+	uint32_t q1; {
+		uint64_t q = high/div1;
+		uint64_t r = high%div1;
+		int64_t a = q*div0 - ((r << 32) | low1);
+		uint32_t err = (a > 0) 
+			? err = ((uint64_t)a > divisor) ? 2 : 1
+			: 0;
+		q1 = (uint32_t)(q - err);
+	}
 
-	return low_quotient;
+	uint64_t rem = ((high << 32) | low1) - q1*divisor;
+
+	uint32_t q0; {
+		uint64_t q = rem/div1;
+		uint64_t r = rem%div1;
+		int64_t a = q*div0 - ((r << 32) | low0);
+		uint32_t err = (a > 0) 
+			? err = ((uint64_t)a > divisor) ? 2 : 1
+			: 0;
+		q0 = (uint32_t)(q - err);
+	}
+
+	*remainder = ((rem << 32) | low0) - q0*divisor;
+	return ((uint64_t)q1 << 32) | q0;
 }
 
 static inline uint64_t uint128_mul(uint64_t high_a, uint64_t low_a, uint64_t b, uint64_t *high_c) {
@@ -192,60 +194,40 @@ static inline uint64_t getNumberOfDecimalDigits(uint64_t n) {
 	return y + 1;
 }
 
-size_t UnsignedToDecimal(uint64_t number, char* str) {
+size_t Unsigned64ToDecimal(uint64_t number, char* buffer, int32_t minDigits) {
 	size_t numberOfDigits = getNumberOfDecimalDigits(number);
 	size_t index = numberOfDigits;
 
+	if (minDigits > numberOfDigits) {
+		size_t pad = minDigits - numberOfDigits;
+		memset(buffer, '0', pad);
+		buffer += pad;
+		numberOfDigits = minDigits;
+	}
+
 	do {
 		index--;
-		str[index] = '0' + (number % 10);
+		buffer[index] = '0' + (number % 10);
 		number /= 10;
 	} while (index);
 
 	return numberOfDigits;
 }
 
-// TODO: I don't love this implementation
-size_t UnsignedToDecimal(uint64_t high, uint64_t low, char* str) {
+size_t Unsigned128ToDecimal(uint64_t high, uint64_t low, char* buffer) {
 	if (high == 0)
-		return UnsignedToDecimal(low, str);
+		return Unsigned64ToDecimal(low, buffer, 0);
 
-	/*
-	 * 128bit unsigned integers can be up to 40 decimal digits.
-	 * 64bit unsigned integer can be up to 20 decimal digits.
-	 * You might think that you can just divide it into 2 parts:
-	 * Print the most significant 20 decimal digits, and then the least significant 20 decimal digits.
-	 * But the least significant 20 digits can actually add up to more than 64 bits.
-	 * So I am splitting it up into 3 parts.
-	 * This is not a great implementation, the uint128_div will produce an expansive div instruction
-	 * Improvements suggestions are welcome.
-	 */
-
-	uint64_t last;
-	low = uint128_div10(high, low, &last, &high);
-
-	char* ptr = str;
-	if (high == 0) {
-		ptr += UnsignedToDecimal(low, ptr);
-	}
-	else {
-		uint64_t remainder;
-		uint64_t quotient = uint128_div(high, low, 10000000000000000000ull, &remainder);
-		ptr += UnsignedToDecimal(quotient, ptr);
-		// TODO: I might want to add a pad parameter to UnsignedToDecimal
-		size_t length = UnsignedToDecimal(remainder, ptr);
-		if (length < 19) {
-			size_t diff = 19 - length;
-			memmove(ptr + diff, ptr, length);
-			memset(ptr, '0', diff);
-		}
-		ptr += 19;
-	}
-	*(ptr++) = (char)last + '0';
-	return ptr - str;
+	char* ptr = buffer;
+	uint64_t remainder;
+	low = uint128_div10e19(high, low, &remainder, &high);
+	ptr += Unsigned128ToDecimal(high, low, ptr);
+	ptr += Unsigned64ToDecimal(remainder, ptr, 19);
+	
+	return ptr - buffer;
 }
 
-size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) {
+size_t FloatToDecimal(uint64_t m2, int32_t e2, char* buffer, int32_t maxPrecision) {
 
 	static int32_t exponentOf5[53] = {
 		55, 54, 53, 53, 52, 52, 52, 51, 51, 50, 50, 
@@ -290,35 +272,25 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 		return 3;
 	}
 
-	uint32_t p = (uint32_t)precision;
+	uint32_t p = (uint32_t)maxPrecision;
 	char* ptr = buffer;
 
-	int32_t trailingZeroes = (int32_t)bits_findFirstSetBit(m2);
-
-	// simplify the fraction
-	m2 >>= trailingZeroes;
-	e2 += trailingZeroes;
-
 	int32_t highBit = (int32_t)bits_findLastSetBit(m2, 0); 
-	ASSERT(highBit <= 52);
 
-	bool hasWhole = 0 <= e2 || -e2 <= highBit;
+	int hasWhole = 0 <= e2 || -e2 <= highBit;
 	if (hasWhole) {
-		bool wholeFitsIn128 = highBit + e2 < 128;
+		int wholeFitsIn128 = highBit + e2 < 128;
 		if (wholeFitsIn128) {
 			uint64_t high = 0;
 			uint64_t low = 0;
-			if (e2 < 0) {
+			if (e2 <= 0) {
 				low = m2 >> -e2;
-			}
-			else if (e2 == 0) {
-				low = m2;
 			}
 			else /*(e2 > 0)*/ {
 				low = (e2 < 64) ? m2 << e2 : 0;
 				high = (e2 < 64) ? m2 >> (64 - e2) : m2 << (e2 - 64);
 			}
-			ptr += UnsignedToDecimal(high, low, ptr);
+			ptr += Unsigned128ToDecimal(high, low, ptr);
 		}
 		else {
 			/*
@@ -353,18 +325,24 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 				}
 			}
 
-			size_t length = UnsignedToDecimal(high, low, ptr);
+			size_t length = Unsigned128ToDecimal(high, low, ptr + 1);
 			uint32_t exp = e10 + (uint32_t)length - 1;
-			if (length - 2 > p) length = p + 2;
-			memmove(ptr + 1, ptr, length);
+			ptr[0] = ptr[1];
 			ptr[1] = '.';
-			ptr += length + 1;
+			ptr += 2;
+
+			size_t precision = length - 1;
+			if (precision > p) {
+				precision = p;
+			}
+			
+			ptr += precision;
 
 			// remove trailing zeroes
 			while (*(ptr - 1) == '0') ptr--;
 
 			*(ptr++) = 'e';
-			ptr += UnsignedToDecimal(exp, ptr);
+			ptr += Unsigned64ToDecimal(exp, ptr, 0);
 
 			// there's not going to be any fraction, so just return
 			return ptr - buffer;
@@ -373,10 +351,19 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 		*(ptr++) = '0';
 	}
 
+	if (p == 0)
+		return ptr - buffer;
+
 	*(ptr++) = '.';
 
-	bool hasFraction = e2 < 0;
+	int hasFraction = e2 < 0;
 	if (hasFraction) {
+
+		// simplify the fraction
+		int32_t trailingZeroes = (int32_t)bits_findFirstSetBit(m2);
+		m2 >>= trailingZeroes;
+		e2 += trailingZeroes;
+
 		unsigned char denominatorExp = (unsigned char)-e2;
 		if (denominatorExp < 64) {
 			uint64_t denominator = 1ull << denominatorExp;
@@ -396,7 +383,6 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 			while (*(ptr - 1) == '0') ptr--;
 		}
 		else {
-			ASSERT(!hasWhole);
 			// oops we printed `0.` but we don't need it.
 			ptr -= 2;
 
@@ -433,19 +419,25 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 				}
 			}
 
-			size_t length = UnsignedToDecimal(high, low, ptr);
+			size_t length = Unsigned128ToDecimal(high, low, ptr + 1);
 			int32_t exp = e10 - (int32_t)length + 1;
-			if (length - 2 > p) length = p + 2;
-			memmove(ptr + 1, ptr, length);
+			ptr[0] = ptr[1];
 			ptr[1] = '.';
-			ptr += length + 1;
+			ptr += 2;
+
+			size_t precision = length - 1;
+			if (precision > p) {
+				precision = p;
+			}
+			
+			ptr += precision;
 
 			// remove trailing zeroes
 			while (*(ptr - 1) == '0') ptr--;
 
 			*(ptr++) = 'e';
 			*(ptr++) = '-';
-			ptr += UnsignedToDecimal(exp, ptr);
+			ptr += Unsigned64ToDecimal(exp, ptr, 0);
 		}
 	}
 	else {
@@ -455,7 +447,7 @@ size_t FloatToDecimal(uint64_t m2, int32_t e2, int32_t precision, char* buffer) 
 	return ptr - buffer;
 }
 
-size_t Float32ToDecimal(uint32_t value, int32_t precision, char* buffer) {
+size_t float32_to_decimal(uint32_t value, char* buffer, int32_t maxPrecision) {
 	uint32_t exp  = (value & 0x7F800000) >> 23;
 	uint32_t sign = (value & 0x80000000) >> 31;
 	uint64_t significand = (value & 0x7FFFFF);
@@ -491,23 +483,22 @@ size_t Float32ToDecimal(uint32_t value, int32_t precision, char* buffer) {
 		length++;
 	}
 
-	if (exp == 0) {
-		length += FloatToDecimal(significand, -149, precision, buffer);
+	if (exp != 0) {
+		significand |= 0x800000;
 	}
-	else {
-		length += FloatToDecimal(significand | 0x800000, (int32_t)exp - 127 - 23, precision, buffer);
-	}
+
+	length += FloatToDecimal(significand, (int32_t)exp - 127 - 23, buffer, maxPrecision);
 
 	return length;
 }
 
-size_t Float32ToDecimal(float value, int32_t precision, char* buffer) {
+size_t Float32ToDecimal(float value, char* buffer, int32_t maxPrecision) {
 	union {float f; uint32_t u;} cvt;
 	cvt.f = value;
-	return Float32ToDecimal(cvt.u, precision, buffer);
+	return float32_to_decimal(cvt.u, buffer, maxPrecision);
 }
 
-size_t Float64ToDecimal(uint64_t value, int32_t precision, char* buffer) {
+size_t float64_to_decimal(uint64_t value, char* buffer, int32_t maxPrecision) {
 	uint32_t sign =        (value & 0x8000000000000000) >> 63;
 	uint32_t exp  =        (value & 0x7FF0000000000000) >> 52;
 	uint64_t significand = (value & 0x000FFFFFFFFFFFFF) >> 00;
@@ -543,18 +534,19 @@ size_t Float64ToDecimal(uint64_t value, int32_t precision, char* buffer) {
 		length++;
 	}
 
-	if (exp == 0) {
-		length += FloatToDecimal(significand, -1075, precision, buffer);
+	if (exp != 0) {
+		significand |= 0x10000000000000;
 	}
-	else {
-		length += FloatToDecimal(significand | 0x10000000000000, (int32_t)exp - 1023 - 52, precision, buffer);
-	}
+
+	length += FloatToDecimal(significand, (int32_t)exp - 1023 - 52, buffer, maxPrecision);
 
 	return length;
 }
 
-size_t Float64ToDecimal(double value, int32_t precision, char* buffer) {
+size_t Float64ToDecimal(double value, char* buffer, int32_t maxPrecision) {
 	union {double f; uint64_t u;} cvt;
 	cvt.f = value;
-	return Float64ToDecimal(cvt.u, precision, buffer);
+	return float64_to_decimal(cvt.u, buffer, maxPrecision);
 }
+
+#endif // FLOAT_TO_DECIMAL_IMPLEMENTATION
